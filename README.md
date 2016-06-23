@@ -1,2 +1,3 @@
-# Streeplijst
-Streeplijst voor happening.im
+Streeplijst
+=======
+A streeplijst app for Happening
