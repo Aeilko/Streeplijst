@@ -1,54 +1,109 @@
-exports.onInstall = ->
-	# set the counter to 0 on plugin installation
-	Db.shared.set 'counter', 0
+App = require 'app'
+Db = require 'db'
 
-# exported functions prefixed with 'client_' are callable by our client code using `Server.call`
-exports.client_incr = ->
-	log 'hello world!' # write to the plugin's log
-	Db.shared.modify 'counter', (v) -> v+1
+exports.onInstall = !->
+	Db.shared.set 'inventory', 
+		count: 0
+		value: 0
+		deposit: 0
+	Db.shared.set 'transactions',
+		maxId: 0
 
-exports.client_getTime = (cb) ->
-	cb.reply new Date()+""
+exports.onJoin = (userId) !->
+	if !Db.shared.get('balances', userId)?
+		Db.shared.set 'balances', userId, 0
+		Db.shared.set 'users', userId,
+			total: 0
+			units:
+				maxId: 0
+			transactions:
+				maxId: 0
 
-exports.onHttp = (request) ->
-	# special entrypoint for the Http API: called whenever a request is made to our plugin's inbound URL
-	Db.shared.set 'http', request.data
-	request.respond 200, "Thanks for your input\n"
-
-exports.client_fetchHn = ->
-	Http = require 'http'
-	Http.get
-		url: 'https://news.ycombinator.com'
-		name: 'hnResponse' # corresponds to exports.hnResponse below
-
-exports.hnResponse = (data) !->
-	# called when the Http API has the result for the above request
+exports.client_addTransaction = (args, cb) !->
+	# Transaction data
+	transaction = 
+		date: App.time()
+		user: App.userId()
+		countChange: args.count|0
+		valueChange: args.value|0
+		depositChange: args.value|0
 	
-	re = /<a href="(http[^"]+)">([^<]+)<\/a>/g
-	# regex to find urls/titles in html
+	# Save transaction
+	id = Db.shared.incr 'transactions', 'maxId'
+	Db.shared.set 'transactions', id, transaction
+	uId = Db.shared.incr 'users', App.userId(), 'transactions'
+	Db.shared.set 'users', App.userId(), 'transactions', uId, id
 
-	id = 1
-	while id < 5 and m = re.exec(data)
-		[all, url, title] = m
-		log 'hn headline', title, url
-		continue if url is 'http://www.ycombinator.com' # header link
-		Db.shared.set 'hn', id,
-			title: title
-			url: url
-		id++
+	# Update inventory
+	if args.count?
+		Db.shared.incr 'inventory', 'count', args.count
+	if args.value?
+		Db.shared.incr 'inventory', 'value', args.value
+	if args.deposit?
+		Db.shared.incr 'inventory', 'deposit', args.deposit
 
-exports.onPhoto = (info) !->
-	# entrypoint when a photo is uploaded by the plugin
-	log 'onPhoto', JSON.stringify(info)
-	Db.shared.set 'photo', info.key
+	# Update user balance
+	balanceChange = ((args.value|0)+(args.deposit|0))
+	Db.shared.incr 'balances', App.userId(), balanceChange
 
-exports.client_event = !->
-	# send push event to all group members
-	Event = require 'event'
-	Event.create
-		text: "Test event"
-		# sender: App.userId() # prevent push (but bubble) to sender
-		# for: [1, 2] # to only include group members 1 and 2
-		# for: [-3] # to exclude group member 3
-		# for: ['admin', 2] # to group admins and member 2
+	cb.reply id
 
+exports.client_removeTransaction = (id, cb) !->
+	# TODO
+
+exports.client_takeUnit = (cb) !->
+	# Calculate average item price
+	price = Math.round(Db.shared.get('inventory', 'value')/Db.shared.get('inventory', 'count'))
+	log 'price', price
+
+	# Save Transaction
+	transaction = 
+		date: App.time()
+		user: App.userId()
+		countChange: -1
+		valueChange: price*(-1)
+	id = Db.shared.incr 'transactions', 'maxId'
+	Db.shared.set 'transactions', id, transaction
+
+	# Update inventory
+	Db.shared.incr 'inventory', 'count', -1
+	Db.shared.incr 'inventory', 'value', price*(-1)
+
+	# Update user
+	Db.shared.incr 'balances', App.userId(), price*(-1)
+	Db.shared.incr 'users', App.userId(), 'total'
+	uId = Db.shared.incr 'users', App.userId(), 'units', 'maxId'
+	Db.shared.set 'users', 'units', uId, id
+
+	cb.reply id
+
+exports.client_removeUnit = (id, cb) !->
+	# TODO
+
+### Database
+Note: All money amounts are in cents.
+
+inventory
+	count					Number of items in inventory
+	value					Total values of items in inventory
+	deposit					Total value of deposits
+balances
+	<userId>				user as key, balance (money) as value
+users			
+	<userId>				Some information for every user
+		total 				Total amount taken
+		units 				List of 'take a unit' events for the user
+			maxId
+			<id>			user unit id to transaction id
+		transactions		List of inventory transactions (all non 'take a unit' transactions)
+			maxId
+			<id>			user transaction ID to transaction id
+transactions	
+	maxId
+	<id>
+		date 				Date of the transaction
+		user 				The userID of the transaction
+		countChange 		The amount with which the inventory count changes (nagative for taking one)
+		valueChange 		The amount with which the inventory value changes
+		depositChange 		The amount with which the inventory deposit changes
+###
