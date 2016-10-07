@@ -52,6 +52,11 @@ exports.client_removeTransaction = (id, cb) !->
 	# TODO
 
 exports.client_takeUnit = (cb) !->
+	# Check if there is any inventory left
+	if Db.shared.get('inventory', 'count') < 1
+		cb.reply false
+		return 
+
 	# Calculate average item price
 	price = Math.round(Db.shared.get('inventory', 'value')/Db.shared.get('inventory', 'count'))
 	log 'price', price
@@ -73,7 +78,7 @@ exports.client_takeUnit = (cb) !->
 	Db.shared.incr 'balances', App.userId(), price*(-1)
 	Db.shared.incr 'users', App.userId(), 'total'
 	uId = Db.shared.incr 'users', App.userId(), 'units', 'maxId'
-	Db.shared.set 'users', 'units', uId, id
+	Db.shared.set 'users', App.userId(), 'units', uId, id
 
 	cb.reply id
 
