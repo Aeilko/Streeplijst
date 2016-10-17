@@ -24,14 +24,14 @@ exports.client_addTransaction = (args, cb) !->
 	transaction = 
 		date: App.time()
 		user: App.userId()
-		countChange: args.count|0
-		valueChange: args.value|0
-		depositChange: args.value|0
+		countChange: args.count
+		valueChange: args.value
+		depositChange: args.deposit
 	
 	# Save transaction
 	id = Db.shared.incr 'transactions', 'maxId'
 	Db.shared.set 'transactions', id, transaction
-	uId = Db.shared.incr 'users', App.userId(), 'transactions'
+	uId = Db.shared.incr 'users', App.userId(), 'transactions', 'maxId'
 	Db.shared.set 'users', App.userId(), 'transactions', uId, id
 
 	# Update inventory
@@ -43,7 +43,7 @@ exports.client_addTransaction = (args, cb) !->
 		Db.shared.incr 'inventory', 'deposit', args.deposit
 
 	# Update user balance
-	balanceChange = ((args.value|0)+(args.deposit|0))
+	balanceChange = (args.value+args.deposit)
 	Db.shared.incr 'balances', App.userId(), balanceChange
 
 	cb.reply id

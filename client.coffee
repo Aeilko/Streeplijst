@@ -1,6 +1,7 @@
 App = require 'app'
 Db = require 'db'
 Dom = require 'dom'
+Form = require 'form'
 Modal = require 'modal'
 Page = require 'page'
 Server = require 'server'
@@ -14,11 +15,21 @@ exports.render = !->
 	if Page.state.get(0) == 'balances'
 		renderBalances()
 	else if Page.state.get(0) == 'inventory'
-		renderInventory()
+		if Page.state.get(1) == 'add'
+			renderInventoryAdd()
+		else
+			renderInventory()
 	else
 		renderOverview()
 
 renderOverview = !->
+	# Title bar icons
+	Page.setActions
+		icon: 'add'
+		label: tr('Add items')
+		action: !->
+			Page.nav ['inventory', 'add']
+
 	# Balances
 	Dom.section !->
 		Dom.div !->
@@ -31,7 +42,7 @@ renderOverview = !->
 					color: App.colors().highlight
 					marginTop: '1px'
 			Dom.div !->
-				Dom.text "You:"
+				Dom.text tr("You:")
 				Dom.style
 					textAlign: 'right'
 					margin: '1px 10px 0 0'
@@ -67,12 +78,12 @@ renderOverview = !->
 		Dom.style padding: '16px'
 	
 	# Take a beer button
-	Ui.bigButton "I Took a Beer", !->
+	Ui.bigButton tr("I Took a Beer"), !->
 		Server.call 'takeUnit', (data) !->
 			if data == false
-				Modal.show "There are no beers left..."
+				Modal.show tr("There are no beers left...")
 			else
-				Modal.show "Success!"
+				Modal.show tr("Success")
 
 	# Log of my recent beers
 
@@ -86,7 +97,48 @@ renderInventory = !->
 	Dom.text "Inventory"
 
 
-# Support methods
+renderInventoryAdd = !->
+	Page.setTitle tr("Add items")
+	
+	Form.setPageSubmit (result) !->
+		log(result)
+		items = parseInt(result.items)
+		price = parseFloat(result.price)*100
+		deposit = parseFloat(result.deposit)*100
+		if items == NaN or price == NaN or deposit == NaN
+			log(typeof items)
+			log(typeof price)
+			log(typeof deposit)
+			Modal.show tr("Not a fields are submitted correctly")
+			return
+
+		# Data correct
+		params = 
+			count: items
+			value: price
+			deposit: deposit
+		Server.call 'addTransaction', params, (result) !->
+			Page.nav ['']
+	, 0
+
+	Dom.h2 tr("Amount of items")
+	Form.input
+		name: 'items'
+		text: tr("Items")
+		value: 24
+	Dom.h2 tr("Price (without deposit)")
+	Form.input
+		name: 'price'
+		text: tr("Price")
+	Dom.h2 tr("Price deposit")
+	Form.input
+		name: 'deposit'
+		text: tr("Deposit")
+		value: 3.90
+
+
+
+# Support methods, borrowed from the Split the Bill app
 formatMoney = (amount) ->
 	amount = Math.round(amount)
 	currency = "€"
